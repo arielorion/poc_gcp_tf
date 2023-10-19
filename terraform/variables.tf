@@ -1,8 +1,16 @@
 variable "project_name" {
   type = string
-  default = "node-on-gcp-terraform"
+  default = ""
 }
 
 variable "deployment_version" {
+  type = string
+}
+
+variable "backend_bucket" {
+  type = string
+}
+
+variable "region" {
   type = string
 }

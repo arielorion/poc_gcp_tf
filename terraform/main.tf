@@ -1,102 +1,79 @@
-terraform {
-  required_providers {
-    google = {
-      source  = "hashicorp/google"
-      version = "4.51.0"
-    }
-  }
-  backend "gcs" {
-    # Can't use the variable that contains the bucket name here.
-    bucket = "ts-appengine-terraform-tfstate"
-    prefix = "ts-appengine-terraform/state"
-  }
-}
-
+# Define the provider (Google Cloud)
 provider "google" {
-  project = var.project_name
-  region  = "us-central1"
+  credentials = var.GOOGLE_ACCESS_KEY
+  project    = var.project_name
+  region     = var.region
 }
 
-resource "google_storage_bucket" "terraform_state" {
-  name          = "ts-appengine-terraform-tfstate"
-  force_destroy = false
-  location      = "US"
-  storage_class = "STANDARD"
-  versioning {
-    enabled = true
+# Create a VPC network
+resource "google_compute_network" "my_network" {
+  name = "my-network"
+}
+
+# Create subnetworks for each tier
+resource "google_compute_subnetwork" "web" {
+  name          = "web-subnetwork"
+  network       = google_compute_network.my_network.self_link
+  ip_cidr_range = "10.0.1.0/24"
+}
+
+resource "google_compute_subnetwork" "app" {
+  name          = "app-subnetwork"
+  network       = google_compute_network.my_network.self_link
+  ip_cidr_range = "10.0.2.0/24"
+}
+
+resource "google_compute_subnetwork" "db" {
+  name          = "db-subnetwork"
+  network       = google_compute_network.my_network.self_link
+  ip_cidr_range = "10.0.3.0/24"
+}
+
+# Create a PostgreSQL database
+resource "google_sql_database_instance" "my_database" {
+  name             = "my-database"
+  database_version = "POSTGRES_13"
+  region           = var.region
+  settings {
+    tier = "db-f1-micro"
   }
 }
 
-resource "google_app_engine_application" "ts-appengine-app" {
+# Create an App Engine application
+resource "google_app_engine_application" "my_app" {
   project     = var.project_name
   location_id = "us-central"
 }
 
-resource "google_storage_bucket" "app" {
-  name          = "${var.project_name}-${random_id.app.hex}"
-  location      = "US"
-  force_destroy = true
-  versioning {
-    enabled = true
-  }
+# Configure the App Engine services
+resource "google_app_engine_service" "web_app" {
+  project     = google_app_engine_application.my_app.project
+  location_id = google_app_engine_application.my_app.location_id
+  service_id  = "web-app"
+  runtime     = "python39" # You can use the appropriate runtime
 }
 
-resource "random_id" "app" {
-  byte_length = 8
+resource "google_app_engine_service" "app_service" {
+  project     = google_app_engine_application.my_app.project
+  location_id = google_app_engine_application.my_app.location_id
+  service_id  = "app-service"
+  runtime     = "python39" # You can use the appropriate runtime
 }
 
-data "archive_file" "function_dist" {
-  type        = "zip"
-  source_dir  = "../app"
-  output_path = "../app/app.zip"
+# Define firewall rules to allow traffic
+resource "google_compute_firewall" "allow-http" {
+  name    = "allow-http"
+  network = google_compute_network.my_network.name
+
+  allow {
+    protocol = "tcp"
+    ports    = ["80"]
+  }
+
+  source_ranges = ["0.0.0.0/0"]
 }
 
-resource "google_storage_bucket_object" "app" {
-  name   = "app.zip"
-  source = data.archive_file.function_dist.output_path
-  bucket = google_storage_bucket.app.name
-}
-
-resource "google_app_engine_application_url_dispatch_rules" "ts-appengine-app-dispatch-rules" {
-  dispatch_rules {
-    domain = "*"
-    path = "/*"
-    service = "default"
-  }
-}
-
-//https://github.com/Ipsossiapi/pt_streams/blob/2b09f2eb013d1902ca5ae63a9644ee2544f93596/terraform/appengine.tf
-resource "google_app_engine_standard_app_version" "latest_version" {
-
-  version_id = var.deployment_version
-  service    = "default"
-  runtime    = "nodejs20"
-
-  entrypoint {
-    shell = "node index.js"
-  }
-
-  deployment {
-    zip {
-      source_url = "https://storage.googleapis.com/${google_storage_bucket.app.name}/${google_storage_bucket_object.app.name}"
-    }
-  }
-
-  instance_class = "F1"
-
-  automatic_scaling {
-    max_concurrent_requests = 10
-    min_idle_instances      = 1
-    max_idle_instances      = 3
-    min_pending_latency     = "1s"
-    max_pending_latency     = "5s"
-    standard_scheduler_settings {
-      target_cpu_utilization        = 0.5
-      target_throughput_utilization = 0.75
-      min_instances                 = 0
-      max_instances                 = 4
-    }
-  }
-  noop_on_destroy = true
-  delete_service_on_destroy = true
+# Output the database connection name
+output "database_connection_name" {
+  value = google_sql_database_instance.my_database.connection_name
 }
