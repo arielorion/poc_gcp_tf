@@ -9,8 +9,10 @@ variable "GOOGLE_CREDENTIALS" {
 
 variable "backend_bucket" {
   type = string
+  default = ""
 }
 
 variable "region" {
   type = string
+  default = "us-east-1"
 }
