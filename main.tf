@@ -1,6 +1,6 @@
 # Define the provider (Google Cloud)
 provider "google" {
-  credentials = var.GOOGLE_ACCESS_KEY
+  credentials = var.GOOGLE_CREDENTIALS
   project    = var.project_name
   region     = var.region
 }

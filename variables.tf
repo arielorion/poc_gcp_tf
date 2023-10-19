@@ -3,7 +3,7 @@ variable "project_name" {
   default = ""
 }
 
-variable "deployment_version" {
+variable "GOOGLE_CREDENTIALS" {
   type = string
 }
 
