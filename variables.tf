@@ -1,4 +1,4 @@
-variable "project_name" {
+variable "PROJECT_ID" {
   type = string
   default = ""
 }

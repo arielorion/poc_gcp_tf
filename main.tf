@@ -1,7 +1,7 @@
 # Define the provider (Google Cloud)
 provider "google" {
   credentials = var.GOOGLE_CREDENTIALS
-  project    = var.project_name
+  project    = var.PROJECT_ID
   region     = var.region
 }
 
@@ -41,23 +41,8 @@ resource "google_sql_database_instance" "my_database" {
 
 # Create an App Engine application
 resource "google_app_engine_application" "my_app" {
-  project     = var.project_name
+  project     = var.PROJECT_ID
   location_id = "us-central"
-}
-
-# Configure the App Engine services
-resource "google_app_engine_service" "web_app" {
-  project     = google_app_engine_application.my_app.project
-  location_id = google_app_engine_application.my_app.location_id
-  service_id  = "web-app"
-  runtime     = "python39" # You can use the appropriate runtime
-}
-
-resource "google_app_engine_service" "app_service" {
-  project     = google_app_engine_application.my_app.project
-  location_id = google_app_engine_application.my_app.location_id
-  service_id  = "app-service"
-  runtime     = "python39" # You can use the appropriate runtime
 }
 
 # Define firewall rules to allow traffic
