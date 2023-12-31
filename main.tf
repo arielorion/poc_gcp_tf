@@ -1,54 +1,94 @@
-# Define the provider (Google Cloud)
+# See https://cloud.google.com/compute/docs/load-balancing/network/example
+
 provider "google" {
-  credentials = var.GOOGLE_CREDENTIALS
-  project    = var.PROJECT_ID
-  region     = var.region
+  region      = var.region
+  project     = var.project_name
+  credentials = file(var.credentials_file_path)
 }
 
-# Create a VPC network
-resource "google_compute_network" "my_network" {
-  name = "my-network"
+resource "google_compute_http_health_check" "default" {
+  name                = "tf-www-basic-check"
+  request_path        = "/"
+  check_interval_sec  = 1
+  healthy_threshold   = 1
+  unhealthy_threshold = 10
+  timeout_sec         = 1
 }
 
-# Create subnetworks for each tier
-resource "google_compute_subnetwork" "web" {
-  name          = "web-subnetwork"
-  network       = google_compute_network.my_network.self_link
-  ip_cidr_range = "10.0.1.0/24"
+resource "google_compute_target_pool" "default" {
+  name          = "tf-www-target-pool"
+  instances     = google_compute_instance.www.*.self_link
+  health_checks = [google_compute_http_health_check.default.name]
 }
 
-resource "google_compute_subnetwork" "app" {
-  name          = "app-subnetwork"
-  network       = google_compute_network.my_network.self_link
-  ip_cidr_range = "10.0.2.0/24"
+resource "google_compute_forwarding_rule" "default" {
+  name       = "tf-www-forwarding-rule"
+  target     = google_compute_target_pool.default.self_link
+  port_range = "80"
 }
 
-resource "google_compute_subnetwork" "db" {
-  name          = "db-subnetwork"
-  network       = google_compute_network.my_network.self_link
-  ip_cidr_range = "10.0.3.0/24"
-}
+resource "google_compute_instance" "www" {
+  count = 3
 
-# Create a PostgreSQL database
-resource "google_sql_database_instance" "my_database" {
-  name             = "my-database"
-  database_version = "POSTGRES_13"
-  region           = var.region
-  settings {
-    tier = "db-f1-micro"
+  name         = "tf-www-${count.index}"
+  machine_type = "f1-micro"
+  zone         = var.region_zone
+  tags         = ["www-node"]
+
+  boot_disk {
+    initialize_params {
+      image = "ubuntu-os-cloud/ubuntu-1404-trusty-v20160602"
+    }
+  }
+
+  network_interface {
+    network = "default"
+
+    access_config {
+      # Ephemeral
+    }
+  }
+
+  metadata = {
+    ssh-keys = "root:${file(var.public_key_path)}"
+  }
+
+  provisioner "file" {
+    source      = var.install_script_src_path
+    destination = var.install_script_dest_path
+
+    connection {
+      host        = self.network_interface.0.access_config.0.nat_ip
+      type        = "ssh"
+      user        = "root"
+      private_key = file(var.private_key_path)
+      agent       = false
+    }
+  }
+
+  provisioner "remote-exec" {
+    connection {
+      host        = self.network_interface.0.access_config.0.nat_ip
+      type        = "ssh"
+      user        = "root"
+      private_key = file(var.private_key_path)
+      agent       = false
+    }
+
+    inline = [
+      "chmod +x ${var.install_script_dest_path}",
+      "sudo ${var.install_script_dest_path} ${count.index}",
+    ]
+  }
+
+  service_account {
+    scopes = ["https://www.googleapis.com/auth/compute.readonly"]
   }
 }
 
-# Create an App Engine application
-resource "google_app_engine_application" "my_app" {
-  project     = var.PROJECT_ID
-  location_id = "us-central"
-}
-
-# Define firewall rules to allow traffic
-resource "google_compute_firewall" "allow-http" {
-  name    = "allow-http"
-  network = google_compute_network.my_network.name
+resource "google_compute_firewall" "default" {
+  name    = "tf-www-firewall"
+  network = "default"
 
   allow {
     protocol = "tcp"
@@ -56,9 +96,5 @@ resource "google_compute_firewall" "allow-http" {
   }
 
   source_ranges = ["0.0.0.0/0"]
-}
-
-# Output the database connection name
-output "database_connection_name" {
-  value = google_sql_database_instance.my_database.connection_name
+  target_tags   = ["www-node"]
 }
